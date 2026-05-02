@@ -126,6 +126,11 @@ Status:
 </div>
 
 <div class="panel">
+LED Server Status (If Offline Don't Type):
+<span class="badge" id="espStatus">Unknown</span>
+</div>
+
+<div class="panel">
 <small>Morse Preview</small>
 <div id="preview" class="glow"></div>
 </div>
@@ -147,6 +152,7 @@ const HOST = "wss://b18093b9df75413cb7bbff6e7eb7488a.s1.eu.hivemq.cloud:8884/mqt
 const USER = "StevebDesigns";
 const PASS = "12345678Ax";
 const TOPIC = "steve/morse";
+const STATUS_TOPIC = "steve/status";
 
 /* ===== MQTT ===== */
 const client = mqtt.connect(HOST,{
@@ -166,47 +172,63 @@ S:"...",T:"-",U:"..-",V:"...-",W:".--",X:"-..-",Y:"-.--",Z:"--..",
 
 /* ===== UI ===== */
 const statusEl = document.getElementById("status");
+const espStatusEl = document.getElementById("espStatus");
 const previewEl = document.getElementById("preview");
 const historyEl = document.getElementById("history");
 const msgEl = document.getElementById("msg");
+
+/* ===== STATUS TIMER ===== */
+let lastSeen = Date.now();
 
 /* ===== CONNECT ===== */
 client.on("connect", () => {
 statusEl.textContent = "Connected";
 
-// 🔥 IMPORTANT: enables shared history
 client.subscribe(TOPIC);
+client.subscribe(STATUS_TOPIC);
 });
 
-/* ===== RECEIVE SHARED HISTORY ===== */
+/* ===== MQTT RECEIVE ===== */
 client.on("message", (topic, message) => {
 
 const msg = message.toString();
 
-// avoid duplicates
-if(window.lastMsg === msg) return;
-window.lastMsg = msg;
+/* ===== ESP32 STATUS ===== */
+if(topic === STATUS_TOPIC){
 
+lastSeen = Date.now();
+
+if(msg === "ACTIVE"){
+espStatusEl.textContent = "ACTIVE";
+espStatusEl.style.background = "#14532d";
+} else {
+espStatusEl.textContent = "ONLINE";
+espStatusEl.style.background = "#1c2746";
+}
+return;
+}
+
+/* ===== HISTORY ===== */
 let text = msg;
 
 try {
 const data = JSON.parse(msg);
 text = data.text;
-} catch(e) {
-text = msg;
-}
+} catch(e){}
 
 addHistory(text);
+
 });
 
-/* ===== STATUS ===== */
-client.on("reconnect", () => {
-statusEl.textContent = "Reconnecting...";
-});
+/* ===== OFFLINE DETECTION ===== */
+setInterval(()=>{
 
-client.on("error", () => {
-statusEl.textContent = "Connection Error";
-});
+if(Date.now() - lastSeen > 20000){
+espStatusEl.textContent = "OFFLINE";
+espStatusEl.style.background = "#7f1d1d";
+}
+
+},3000);
 
 /* ===== MORSE PREVIEW ===== */
 msgEl.addEventListener("input", () => {
@@ -248,15 +270,8 @@ brightness: Number(bright)
 
 client.publish(TOPIC, payload);
 
-// local immediate feedback
-addHistory(msg);
-
 msgEl.value="";
 previewEl.textContent="";
-
-// optional sync delay for ESP32 feel
-setTimeout(()=>{},300);
-
 }
 
 </script>
