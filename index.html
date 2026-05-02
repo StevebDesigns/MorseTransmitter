@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Steve's Morse Transmitter</title>
+
 <style>
 :root{
 --bg:#090c16;
@@ -13,9 +14,10 @@
 --muted:#92a2c9;
 --accent:#5eead4;
 --accent2:#60a5fa;
---danger:#fb7185;
 }
+
 *{box-sizing:border-box}
+
 body{
 margin:0;
 font-family:Arial,Helvetica,sans-serif;
@@ -23,7 +25,9 @@ background:radial-gradient(circle at top,#16203c,#090c16 55%);
 color:var(--text);
 padding:18px;
 }
+
 .wrap{max-width:760px;margin:auto}
+
 .card{
 background:rgba(17,23,42,.94);
 border:1px solid rgba(255,255,255,.06);
@@ -31,8 +35,10 @@ border-radius:24px;
 padding:22px;
 box-shadow:0 20px 60px rgba(0,0,0,.45);
 }
+
 h1{margin:0 0 8px;font-size:clamp(28px,5vw,44px)}
 p{margin:0 0 18px;color:var(--muted)}
+
 textarea{
 width:100%;
 min-height:140px;
@@ -45,8 +51,10 @@ border-radius:18px;
 background:#0b1120;
 color:white;
 }
+
 .row{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px}
 .row>*{flex:1}
+
 button{
 width:100%;
 border:none;
@@ -58,13 +66,16 @@ cursor:pointer;
 background:linear-gradient(90deg,var(--accent),var(--accent2));
 color:#08111d;
 }
+
 button:active{transform:scale(.99)}
+
 .panel{
 margin-top:14px;
 padding:14px;
 border-radius:18px;
 background:#0b1120;
 }
+
 .badge{
 display:inline-block;
 padding:8px 12px;
@@ -72,20 +83,27 @@ border-radius:999px;
 background:#11172a;
 border:1px solid var(--line);
 }
+
 small{color:var(--muted)}
+
 input[type=range]{width:100%}
+
 .history{
 max-height:180px;
 overflow:auto;
 font-size:14px;
 line-height:1.6;
 }
+
 .glow{color:var(--accent)}
 </style>
 </head>
+
 <body>
+
 <div class="wrap">
 <div class="card">
+
 <h1>Steve's LED control</h1>
 <p>25 Lights would blink to convey a message</p>
 
@@ -96,6 +114,7 @@ line-height:1.6;
 <small>Brightness</small>
 <input type="range" min="20" max="255" value="255" id="bright">
 </div>
+
 <div style="display:flex;align-items:end">
 <button onclick="sendMsg()">Transmit</button>
 </div>
@@ -112,7 +131,7 @@ Status:
 </div>
 
 <div class="panel">
-<small>History</small>
+<small>History (shared)</small>
 <div class="history" id="history"></div>
 </div>
 
@@ -120,14 +139,23 @@ Status:
 </div>
 
 <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
 <script>
-/* ====== PUT YOUR DETAILS HERE ====== */
+
+/* ===== CONFIG ===== */
 const HOST = "wss://b18093b9df75413cb7bbff6e7eb7488a.s1.eu.hivemq.cloud:8884/mqtt";
 const USER = "StevebDesigns";
 const PASS = "12345678Ax";
 const TOPIC = "steve/morse";
-/* ================================ */
 
+/* ===== MQTT ===== */
+const client = mqtt.connect(HOST,{
+username:USER,
+password:PASS,
+clean:true
+});
+
+/* ===== MORSE MAP ===== */
 const MORSE = {
 A:".-",B:"-...",C:"-.-.",D:"-..",E:".",F:"..-.",G:"--.",H:"....",I:"..",
 J:".---",K:"-.-",L:".-..",M:"--",N:"-.",O:"---",P:".--.",Q:"--.-",R:".-.",
@@ -136,112 +164,102 @@ S:"...",T:"-",U:"..-",V:"...-",W:".--",X:"-..-",Y:"-.--",Z:"--..",
 6:"-....",7:"--...",8:"---..",9:"----."
 };
 
+/* ===== UI ===== */
 const statusEl = document.getElementById("status");
 const previewEl = document.getElementById("preview");
 const historyEl = document.getElementById("history");
 const msgEl = document.getElementById("msg");
 
-const client = mqtt.connect(HOST,{
-username:USER,
-password:PASS,
-clean:true,
-connectTimeout:4000
+/* ===== CONNECT ===== */
+client.on("connect", () => {
+statusEl.textContent = "Connected";
+
+// 🔥 IMPORTANT: enables shared history
+client.subscribe(TOPIC);
 });
 
-client.on("connect",()=>{
-statusEl.textContent="Connected";
+/* ===== RECEIVE SHARED HISTORY ===== */
+client.on("message", (topic, message) => {
+
+const msg = message.toString();
+
+// avoid duplicates
+if(window.lastMsg === msg) return;
+window.lastMsg = msg;
+
+let text = msg;
+
+try {
+const data = JSON.parse(msg);
+text = data.text;
+} catch(e) {
+text = msg;
+}
+
+addHistory(text);
 });
 
-client.on("reconnect",()=>{
-statusEl.textContent="Reconnecting...";
+/* ===== STATUS ===== */
+client.on("reconnect", () => {
+statusEl.textContent = "Reconnecting...";
 });
 
-client.on("error",()=>{
-statusEl.textContent="Connection Error";
+client.on("error", () => {
+statusEl.textContent = "Connection Error";
 });
 
-function textToMorse(t){
+/* ===== MORSE PREVIEW ===== */
+msgEl.addEventListener("input", () => {
+previewEl.textContent = toMorse(msgEl.value);
+});
+
+function toMorse(t){
 t=t.toUpperCase();
 let out=[];
-for(let ch of t){
-if(ch===" "){out.push("/");continue;}
-if(MORSE[ch]) out.push(MORSE[ch]);
+for(let c of t){
+if(c===" ") out.push("/");
+else if(MORSE[c]) out.push(MORSE[c]);
 }
 return out.join(" ");
 }
 
-msgEl.addEventListener("input",()=>{
-previewEl.textContent=textToMorse(msgEl.value);
-});
-
-function addHistory(t){
+/* ===== HISTORY ===== */
+function addHistory(text){
 historyEl.innerHTML =
-new Date().toLocaleTimeString()+" — "+t+"<br>"+historyEl.innerHTML;
+new Date().toLocaleTimeString() +
+" — " +
+text +
+"<br>" +
+historyEl.innerHTML;
 }
 
-async function tone(ms){
-const AC=window.AudioContext||window.webkitAudioContext;
-if(!window.audioCtx) window.audioCtx=new AC();
-const ctx=window.audioCtx;
-if(ctx.state==="suspended") await ctx.resume();
-
-const osc=ctx.createOscillator();
-const gain=ctx.createGain();
-osc.type="triangle";
-osc.frequency.value=300;
-gain.gain.value=0.04;
-osc.connect(gain);
-gain.connect(ctx.destination);
-osc.start();
-await new Promise(r=>setTimeout(r,ms));
-osc.stop();
-}
-
-async function playMorse(text){
-const u=200;
-for(let ch of text.toUpperCase()){
-if(ch===" "){await wait(u*6);continue;}
-const code=MORSE[ch]||"";
-for(let s of code){
-if(s===".") await tone(u);
-else await tone(u*3);
-await wait(u);
-}
-await wait(u*2);
-}
-}
-
-function wait(ms){
-return new Promise(r=>setTimeout(r,ms));
-}
-
+/* ===== SEND ===== */
 function sendMsg(){
-const msg=msgEl.value.trim();
+
+const msg = msgEl.value.trim();
+const bright = document.getElementById("bright").value;
+
 if(!msg) return;
-
-const bright=document.getElementById("bright").value;
-
-statusEl.textContent="Transmitting";
 
 const payload = JSON.stringify({
 text: msg,
 brightness: Number(bright)
 });
 
-client.publish(TOPIC,payload);
+client.publish(TOPIC, payload);
 
-setTimeout(() => {
-  playMorse(msg);
-}, 300);
+// local immediate feedback
 addHistory(msg);
 
 msgEl.value="";
 previewEl.textContent="";
 
-setTimeout(()=>{
-statusEl.textContent="Connected";
-},700);
+// optional sync delay for ESP32 feel
+setTimeout(()=>{},300);
+
 }
+
 </script>
+
 </body>
 </html>
